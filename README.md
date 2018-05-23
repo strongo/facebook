@@ -23,7 +23,7 @@ package main
 
 import (
     "fmt"
-    fb "github.com/huandu/facebook"
+    fb "github.com/strongo/facebook"
 )
 
 func main() {
@@ -359,7 +359,7 @@ Package `golang.org/x/oauth2` can handle facebook OAuth2 authentication process 
 import (
     "golang.org/x/oauth2"
     oauth2fb "golang.org/x/oauth2/facebook"
-    fb "github.com/huandu/facebook"
+    fb "github.com/strongo/facebook"
 )
 
 // Get facebook access token.

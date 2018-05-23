@@ -15,6 +15,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"context"
+	"github.com/strongo/log"
 )
 
 // Creates a new App and sets app id and secret.
@@ -93,8 +95,8 @@ func (app *App) ParseSignedRequest(signedRequest string) (res Result, err error)
 // In facebook PHP SDK, there is a CSRF state to avoid attack.
 // That state is not checked in this library.
 // Caller is responsible to store and check state if possible.
-func (app *App) ParseCode(code string) (token string, err error) {
-	token, _, _, err = app.ParseCodeInfo(code, "")
+func (app *App) ParseCode(code string, httpClient HttpClient) (token string, err error) {
+	token, _, _, err = app.ParseCodeInfo(code, "", httpClient)
 	return
 }
 
@@ -102,14 +104,21 @@ func (app *App) ParseCode(code string) (token string, err error) {
 // The machineId is optional.
 //
 // See https://developers.facebook.com/docs/facebook-login/access-tokens#extending
-func (app *App) ParseCodeInfo(code, machineId string) (token string, expires int, newMachineId string, err error) {
+func (app *App) ParseCodeInfo(code, machineId string, httpClient HttpClient) (token string, expires int, newMachineId string, err error) {
 	if code == "" {
 		err = fmt.Errorf("code is empty")
 		return
 	}
 
 	var res Result
-	res, err = defaultSession.sendOauthRequest("/oauth/access_token", Params{
+
+	session := defaultSession
+	if httpClient != nil {
+		session = &(*defaultSession)
+		session.HttpClient = httpClient
+	}
+
+	res, err = session.sendOauthRequest("/oauth/access_token", Params{
 		"client_id":     app.AppId,
 		"redirect_uri":  app.RedirectUri,
 		"client_secret": app.AppSecret,
@@ -222,16 +231,30 @@ func (app *App) Session(accessToken string) *Session {
 	}
 }
 
+func (app *App) SessionWithHttpClient(accessToken string, httpClient HttpClient) *Session {
+	return &Session{
+		accessToken:          accessToken,
+		app:                  app,
+		enableAppsecretProof: app.EnableAppsecretProof,
+		HttpClient:           httpClient,
+	}
+}
+
 // Creates a session from a signed request.
 // If signed request contains a code, it will automatically use this code
 // to exchange a valid access token.
-func (app *App) SessionFromSignedRequest(signedRequest string) (session *Session, err error) {
+func (app *App) SessionFromSignedRequest(c context.Context, signedRequest string, httpClient HttpClient) (session *Session, err error) {
 	var res Result
 
-	res, err = app.ParseSignedRequest(signedRequest)
+	if httpClient == nil {
+		httpClient = defaultSession.HttpClient
+	}
 
-	if err != nil {
+	if res, err = app.ParseSignedRequest(signedRequest); err != nil {
 		return
+	}
+	if c != nil {
+		log.Debugf(c, "Parsed signedRequest: %v", res)
 	}
 
 	var id, token string
@@ -245,6 +268,7 @@ func (app *App) SessionFromSignedRequest(signedRequest string) (session *Session
 			app:                  app,
 			id:                   id,
 			enableAppsecretProof: app.EnableAppsecretProof,
+			HttpClient:           httpClient,
 		}
 		return
 	}
@@ -258,7 +282,7 @@ func (app *App) SessionFromSignedRequest(signedRequest string) (session *Session
 		return
 	}
 
-	token, err = app.ParseCode(token)
+	token, err = app.ParseCode(token, httpClient)
 
 	if err != nil {
 		return
@@ -269,6 +293,7 @@ func (app *App) SessionFromSignedRequest(signedRequest string) (session *Session
 		app:                  app,
 		id:                   id,
 		enableAppsecretProof: app.EnableAppsecretProof,
+		HttpClient: httpClient,
 	}
 	return
 }
